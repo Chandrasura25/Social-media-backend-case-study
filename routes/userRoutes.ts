@@ -11,16 +11,15 @@ router.post('/login', userController.loginUser);
 
 // Posts
 router.post('/posts', verifyToken, postController.createPost);
-// router.get('/posts', cacheMiddleware, postController.getAllPosts); // Add caching middleware
-router.get('/posts', postController.getAllPosts); // Add caching middleware
+router.get('/posts', cacheMiddleware, postController.getAllPosts); // Add caching middleware
+
 router.get('/posts/:userId', verifyToken, postController.getAllPostsByUser); 
 router.post('/posts/like/:postId', verifyToken, postController.likePost); // Route to like a post
 router.post('/posts/unlike/:postId', verifyToken, postController.unlikePost); // Route to unlike a post
 router.post('/posts/comment/:postId', verifyToken, postController.commentOnPost); // Route to comment on a post
 
 // Feeds
-router.get('/feed', verifyToken, postController.getFeed); // Add caching middleware
-// router.get('/feed', verifyToken, cacheMiddleware, postController.getFeed); // Add caching middleware
+router.get('/feed', verifyToken, cacheMiddleware, postController.getFeed); // Add caching middleware
 
 // Followers and Following
 router.post('/follow/:userIdToFollow', verifyToken, userController.followUser); 
