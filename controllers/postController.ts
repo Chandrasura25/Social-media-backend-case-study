@@ -106,3 +106,78 @@ export const getFeed = async (req: AuthenticatedRequest, res: Response): Promise
     res.status(500).json({ message: 'Server error' });
   }
 };
+
+// Like a post
+export const likePost = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.userId; // Access userId from req.user
+    const { postId } = req.params;
+
+    const post = await Post.findById(postId);
+
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+
+    // Check if the user has already liked the post
+    if (post.likes.includes(userId)) {
+      return res.status(400).json({ message: 'You have already liked this post' });
+    }
+
+    // Add the user to the post's likes list
+    post.likes.push(userId);
+    await post.save();
+
+    res.status(200).json({ message: 'Post liked successfully' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Unlike a post
+export const unlikePost = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.userId; // Access userId from req.user
+    const { postId } = req.params;
+
+    const post = await Post.findById(postId);
+
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+
+    // Remove the user from the post's likes list
+    post.likes = post.likes.filter(id => id !== userId);
+    await post.save();
+
+    res.status(200).json({ message: 'Post unliked successfully' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Comment on a post
+export const commentOnPost = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.userId; // Access userId from req.user
+    const { postId } = req.params;
+    const { text } = req.body;
+
+    const post = await Post.findById(postId);
+
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+
+    // Add the comment to the post's comments list
+    post.comments.push({ user: userId, text });
+    await post.save();
+
+    res.status(201).json({ message: 'Comment added successfully' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};

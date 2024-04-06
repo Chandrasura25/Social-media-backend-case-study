@@ -1,30 +1,41 @@
 import { Request, Response, NextFunction } from 'express';
-import redis, { RedisClient } from 'redis';
+import { createClient } from 'redis';
 
-const client: RedisClient = redis.createClient();
+const redisClient = createClient(); // Create the Redis client
+
+redisClient.connect().then(() => {
+  console.log('Redis client connected');
+}).catch((error) => {
+  console.error('Redis client connection error:', error);
+});
 
 // Cache middleware
-export const cacheMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  const key: string = req.originalUrl; // Use the request URL as the cache key
+export const cacheMiddleware = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const key: string = req.originalUrl; // Use the request URL as the cache key
 
-  client.get(key, (err: Error | null, data: string | null) => {
-    if (err) {
-      console.error('Error retrieving data from cache:', err);
-      next();
+    const cachedData = await redisClient.get(key);
+
+    if (cachedData) {
+      console.log('Data retrieved from cache');
+      res.status(200).json(JSON.parse(cachedData)); // Serve data from cache
       return;
     }
 
-    if (data) {
-      console.log('Data retrieved from cache');
-      res.status(200).json(JSON.parse(data)); // Serve data from cache
-    } else {
-      console.log('Data not found in cache');
-      const sendResponse = res.send.bind(res); // Bind res.send to the response object
-      res.send = (body): Response<any, Record<string, any>> => {
-        client.setex(key, 3600, JSON.stringify(body)); // Cache data for 1 hour using setEx
-        return sendResponse(body); // Send the response
-      };
-      next();
+    console.log('Data not found in cache');
+    await next(); // Proceed to downstream middleware or route handler
+
+    const body = res.locals.resBody; // Access the response body after processing
+
+    if (body) { // Only cache if there's a response body
+      await redisClient.setEx(key, 3600, JSON.stringify(body)); // Cache data for 1 hour
     }
-  });
+  } catch (error) {
+    console.error('Error in cache middleware:', error);
+    next(error); // Handle errors gracefully
+  }
 };
