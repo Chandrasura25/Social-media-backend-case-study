@@ -110,21 +110,21 @@ export const getFeed = async (req: AuthenticatedRequest, res: Response): Promise
 // Like a post
 export const likePost = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const userId = req.user?.userId; // Access userId from req.user
+    const userId = req.user?.userId;
     const { postId } = req.params;
 
     const post = await Post.findById(postId);
 
     if (!post) {
-      return res.status(404).json({ message: 'Post not found' });
+      res.status(404).json({ message: 'Post not found' });
+      return;
     }
 
-    // Check if the user has already liked the post
-    if (post.likes.includes(userId)) {
-      return res.status(400).json({ message: 'You have already liked this post' });
+    if (!post.likes || !post.likes.includes(userId)) {
+      res.status(400).json({ message: 'You have already liked this post' });
+      return;
     }
 
-    // Add the user to the post's likes list
     post.likes.push(userId);
     await post.save();
 
@@ -135,20 +135,25 @@ export const likePost = async (req: AuthenticatedRequest, res: Response): Promis
   }
 };
 
-// Unlike a post
+// Unlike a Post
 export const unlikePost = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const userId = req.user?.userId; // Access userId from req.user
+    const userId = req.user?.userId;
     const { postId } = req.params;
 
     const post = await Post.findById(postId);
 
     if (!post) {
-      return res.status(404).json({ message: 'Post not found' });
+      res.status(404).json({ message: 'Post not found' });
+      return;
     }
 
-    // Remove the user from the post's likes list
-    post.likes = post.likes.filter(id => id !== userId);
+    if (!post.likes || !post.likes.includes(userId)) {
+      res.status(400).json({ message: 'You have not liked this post yet' });
+      return;
+    }
+
+    post.likes = post.likes.filter((id: string) => id !== userId);
     await post.save();
 
     res.status(200).json({ message: 'Post unliked successfully' });
@@ -158,20 +163,24 @@ export const unlikePost = async (req: AuthenticatedRequest, res: Response): Prom
   }
 };
 
-// Comment on a post
+// Comment on a Post
 export const commentOnPost = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const userId = req.user?.userId; // Access userId from req.user
+    const userId = req.user?.userId;
     const { postId } = req.params;
     const { text } = req.body;
 
     const post = await Post.findById(postId);
 
     if (!post) {
-      return res.status(404).json({ message: 'Post not found' });
+      res.status(404).json({ message: 'Post not found' });
+      return;
     }
 
-    // Add the comment to the post's comments list
+    if (!post.comments) {
+      post.comments = [];
+    }
+
     post.comments.push({ user: userId, text });
     await post.save();
 
