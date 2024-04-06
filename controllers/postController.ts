@@ -3,6 +3,8 @@ import Post, { PostDocument } from '../models/Post';
 import { uploadMedia } from '../utils/uploadFile';
 import upload from '../utils/multerConfig'; 
 import { paginate } from '../utils/pagination';
+import Notification from '../models/Notification';
+import { io } from '../index';
 
 interface AuthenticatedRequest extends Request {
    user?: { userId: string; following: string[] };// Define the user property with userId
