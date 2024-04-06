@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 const userRoutes = require('./routes/userRoutes');
-
+import Notification from './models/Notification';
 dotenv.config();
 
 const app = express();
@@ -34,10 +34,20 @@ app.use("/api", userRoutes);
     });
 
     io.on('connection', (socket) => {
-      console.log('New connection');
+      console.log('A client connected');
 
+      // Example: Handle notification events
+      socket.on('notification', async (userId) => {
+        // Retrieve notifications for the user
+        const notifications = await Notification.find({ recipient: userId, read: false }).lean();
+
+        // Emit notifications to the client
+        socket.emit('notifications', notifications);
+      });
+
+      // Handle disconnection
       socket.on('disconnect', () => {
-        console.log('User disconnected');
+        console.log('A client disconnected');
       });
     });
   } catch (error) {
