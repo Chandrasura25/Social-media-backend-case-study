@@ -55,3 +55,5 @@ app.use("/api", userRoutes);
     process.exit(1); 
   }
 })();
+
+export { io };
