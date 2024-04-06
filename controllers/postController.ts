@@ -49,15 +49,25 @@ export const getAllPosts = async (req: Request, res: Response): Promise<void> =>
     const { page, limit, skip } = paginate(req);
 
     const posts: PostDocument[] = await Post.find()
-                                           .skip(skip)
-                                           .limit(limit);
+      .skip(skip)
+      .limit(limit)
+      .populate('user', 'username') // Populate the 'user' field with username
+      .lean(); // Use lean() to return plain JavaScript objects
 
-    res.status(200).json(posts);
+    // Map posts to include the number of likes and comments
+    const postsWithLikesAndComments = posts.map(post => ({
+      ...post,
+      likesCount: post.likes.length, // Number of likes
+      commentsCount: post.comments.length, // Number of comments
+    }));
+
+    res.status(200).json(postsWithLikesAndComments);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
   }
 };
+
 
 // Get all posts by a specific user
 export const getAllPostsByUser = async (req: Request, res: Response): Promise<void> => {
@@ -66,15 +76,25 @@ export const getAllPostsByUser = async (req: Request, res: Response): Promise<vo
     const { page, limit, skip } = paginate(req);
 
     const posts: PostDocument[] = await Post.find({ user: userId })
-                                           .skip(skip)
-                                           .limit(limit);
+      .skip(skip)
+      .limit(limit)
+      .populate('user', 'username') // Populate the 'user' field with username
+      .lean(); // Use lean() to return plain JavaScript objects
 
-    res.status(200).json(posts);
+    // Map posts to include the number of likes and comments
+    const postsWithLikesAndComments = posts.map(post => ({
+      ...post,
+      likesCount: post.likes.length, // Number of likes
+      commentsCount: post.comments.length, // Number of comments
+    }));
+
+    res.status(200).json(postsWithLikesAndComments);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
   }
 };
+
 
 
 // Feeds
@@ -110,25 +130,30 @@ export const getFeed = async (req: AuthenticatedRequest, res: Response): Promise
 // Like a post
 export const likePost = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const userId = req.user?.userId;
+    const userId = req.user?.userId; // Current user ID
     const { postId } = req.params;
 
-    const post = await Post.findById(postId);
+    if (!userId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+
+    const post: PostDocument | null = await Post.findById(postId).lean();
 
     if (!post) {
       res.status(404).json({ message: 'Post not found' });
       return;
     }
 
+    // Check if the user has already liked the post
     if (!post.likes || !post.likes.includes(userId)) {
-      res.status(400).json({ message: 'You have already liked this post' });
+      // Add the user to the post's likes list
+      await Post.findByIdAndUpdate(postId, { $addToSet: { likes: userId } });
+      res.status(200).json({ message: 'Post liked successfully' });
       return;
     }
 
-    post.likes.push(userId);
-    await post.save();
-
-    res.status(200).json({ message: 'Post liked successfully' });
+    res.status(400).json({ message: 'You have already liked this post' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
@@ -138,23 +163,18 @@ export const likePost = async (req: AuthenticatedRequest, res: Response): Promis
 // Unlike a Post
 export const unlikePost = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const userId = req.user?.userId;
+    const userId = req.user?.userId;// Current user ID
     const { postId } = req.params;
 
-    const post = await Post.findById(postId);
+    const post: PostDocument | null = await Post.findById(postId).lean();
 
     if (!post) {
       res.status(404).json({ message: 'Post not found' });
       return;
     }
 
-    if (!post.likes || !post.likes.includes(userId)) {
-      res.status(400).json({ message: 'You have not liked this post yet' });
-      return;
-    }
-
-    post.likes = post.likes.filter((id: string) => id !== userId);
-    await post.save();
+    // Remove the user from the post's likes list
+    await Post.findByIdAndUpdate(postId, { $pull: { likes: userId } });
 
     res.status(200).json({ message: 'Post unliked successfully' });
   } catch (error) {
@@ -170,6 +190,11 @@ export const commentOnPost = async (req: AuthenticatedRequest, res: Response): P
     const { postId } = req.params;
     const { text } = req.body;
 
+    if (!userId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+
     const post = await Post.findById(postId);
 
     if (!post) {
@@ -181,7 +206,13 @@ export const commentOnPost = async (req: AuthenticatedRequest, res: Response): P
       post.comments = [];
     }
 
-    post.comments.push({ user: userId, text });
+    const newComment = {
+      user: userId,
+      text,
+      createdAt: new Date() // Provide a default createdAt value
+    };
+
+    post.comments.push(newComment);
     await post.save();
 
     res.status(201).json({ message: 'Comment added successfully' });
