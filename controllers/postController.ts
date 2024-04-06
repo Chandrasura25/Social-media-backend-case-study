@@ -10,19 +10,26 @@ interface AuthenticatedRequest extends Request {
    user?: { userId: string; following: string[] };// Define the user property with userId
 }
 
+// Mention notification handler
+const sendMentionNotification = async (recipient: string) => {
+  io.emit('notification', recipient); // Emit a notification event to all connected clients
+};
+
 // Create a new post
-exports.createPost = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
- try {
-    const { text } = req.body;
+export const createPost = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { text, mentionedUsers } = req.body;
     const userId = req.user?.userId; // Access userId from req.user
 
     if (!userId) {
-      res.status(401).json({ message: 'Unauthorized' }); 
+      res.status(401).json({ message: 'Unauthorized' });
     } else {
-      upload.single('file')(req, res, async (err: any) => { // Use multer middleware directly
+      // Use multer middleware directly
+      upload.single('file')(req, res, async (err: any) => {
         if (err) {
           console.error(err);
-          return res.status(500).json({ message: 'File upload error' });
+          res.status(500).json({ message: 'File upload error' });
+          return;
         }
 
         // Use type assertion to inform TypeScript about the existence of the 'file' property
@@ -31,10 +38,18 @@ exports.createPost = async (req: AuthenticatedRequest, res: Response): Promise<v
         const post = new Post({
           user: userId,
           text,
-          media: media // Media URL from file upload
+          media: media, // Media URL from file upload
+          mentionedUsers: mentionedUsers // Mentioned users
         });
 
         await post.save();
+
+        // Trigger mention notifications for mentioned users
+        if (mentionedUsers && mentionedUsers.length > 0) {
+          mentionedUsers.forEach(async (user: string) => {
+            await sendMentionNotification(user);
+          });
+        }
 
         res.status(201).json({ message: 'Post created successfully' });
       });
@@ -140,7 +155,7 @@ export const likePost = async (req: AuthenticatedRequest, res: Response): Promis
       return;
     }
 
-    const post: PostDocument | null = await Post.findById(postId).lean();
+    const post: PostDocument | null = await Post.findById(postId);
 
     if (!post) {
       res.status(404).json({ message: 'Post not found' });
@@ -151,6 +166,12 @@ export const likePost = async (req: AuthenticatedRequest, res: Response): Promis
     if (!post.likes || !post.likes.includes(userId)) {
       // Add the user to the post's likes list
       await Post.findByIdAndUpdate(postId, { $addToSet: { likes: userId } });
+
+      // Notify the post owner about the like
+      if (String(post.user) !== userId) {
+        await sendLikeNotification(post.user);
+      }
+
       res.status(200).json({ message: 'Post liked successfully' });
       return;
     }
