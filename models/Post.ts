@@ -10,6 +10,7 @@ export interface PostDocument extends Document {
     text: string;
     createdAt: Date;
   }[];
+  mentionedUsers: string[]; // Array of user IDs mentioned in the post
   createdAt: Date;
 }
 
@@ -23,8 +24,8 @@ const postSchema: Schema = new Schema({
     text: { type: String, required: true },
     createdAt: { type: Date, default: Date.now },
   }],
+  mentionedUsers: [{ type: Schema.Types.ObjectId, ref: 'User' }], // Define mentionedUsers field
   createdAt: { type: Date, default: Date.now },
 });
 
 export default mongoose.model<PostDocument>('Post', postSchema);
-
