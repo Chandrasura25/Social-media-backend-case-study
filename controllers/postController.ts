@@ -10,8 +10,8 @@ interface AuthenticatedRequest extends Request {
    user?: { userId: string; following: string[] };// Define the user property with userId
 }
 
-// Mention notification handler
-const sendMentionNotification = async (recipient: string) => {
+// Notification handler
+const sendNotification = async (recipient: string) => {
   io.emit('notification', recipient); // Emit a notification event to all connected clients
 };
 
@@ -47,7 +47,7 @@ export const createPost = async (req: AuthenticatedRequest, res: Response): Prom
         // Trigger mention notifications for mentioned users
         if (mentionedUsers && mentionedUsers.length > 0) {
           mentionedUsers.forEach(async (user: string) => {
-            await sendMentionNotification(user);
+            await sendNotification(user);
           });
         }
 
@@ -169,7 +169,7 @@ export const likePost = async (req: AuthenticatedRequest, res: Response): Promis
 
       // Notify the post owner about the like
       if (String(post.user) !== userId) {
-        await sendLikeNotification(post.user);
+        await sendNotification(post.user);
       }
 
       res.status(200).json({ message: 'Post liked successfully' });
@@ -211,14 +211,14 @@ export const commentOnPost = async (req: AuthenticatedRequest, res: Response): P
   try {
     const userId = req.user?.userId;
     const { postId } = req.params;
-    const { text } = req.body;
+    const { text, mentionedUsers } = req.body;
 
     if (!userId) {
       res.status(401).json({ message: 'Unauthorized' });
       return;
     }
 
-    const post = await Post.findById(postId);
+    const post: PostDocument | null = await Post.findById(postId);
 
     if (!post) {
       res.status(404).json({ message: 'Post not found' });
@@ -232,11 +232,24 @@ export const commentOnPost = async (req: AuthenticatedRequest, res: Response): P
     const newComment = {
       user: userId,
       text,
-      createdAt: new Date() // Provide a default createdAt value
+      createdAt: new Date(), // Provide a default createdAt value
     };
 
+    // Add comment to the post's comments array
     post.comments.push(newComment);
     await post.save();
+
+    // Notify the post owner about the comment
+    if (String(post.user) !== userId) {
+      await sendNotification(post.user);
+    }
+
+    // Trigger mention notifications for mentioned users
+    if (mentionedUsers && mentionedUsers.length > 0) {
+      mentionedUsers.forEach(async (user: string) => {
+        await sendNotification(user);
+      });
+    }
 
     res.status(201).json({ message: 'Comment added successfully' });
   } catch (error) {
