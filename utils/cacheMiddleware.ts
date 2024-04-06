@@ -1,16 +1,17 @@
-import express, { Request, Response, NextFunction } from 'express';
-import redis from 'redis';
+import { Request, Response, NextFunction } from 'express';
+import redis, { RedisClient } from 'redis';
 
-const client = redis.createClient();
+const client: RedisClient = redis.createClient();
 
 // Cache middleware
 export const cacheMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  const key = req.originalUrl; // Use the request URL as the cache key
+  const key: string = req.originalUrl; // Use the request URL as the cache key
 
   client.get(key, (err: Error | null, data: string | null) => {
     if (err) {
       console.error('Error retrieving data from cache:', err);
       next();
+      return;
     }
 
     if (data) {
@@ -19,9 +20,9 @@ export const cacheMiddleware = (req: Request, res: Response, next: NextFunction)
     } else {
       console.log('Data not found in cache');
       const sendResponse = res.send.bind(res); // Bind res.send to the response object
-      res.send = (body) => {
-        client.setEx(key, 3600, JSON.stringify(body)); // Cache data for 1 hour using setEx
-        sendResponse(body); // Send the response
+      res.send = (body): Response<any, Record<string, any>> => {
+        client.setex(key, 3600, JSON.stringify(body)); // Cache data for 1 hour using setEx
+        return sendResponse(body); // Send the response
       };
       next();
     }
