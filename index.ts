@@ -5,8 +5,8 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import bodyParser from 'body-parser';
-const userRoutes = require('./routes/userRoutes');
-import Notification from './models/Notification';
+const userRoutes = require('./src/routes/userRoutes');
+import Notification from './src/models/Notification';
 dotenv.config();
 
 const app = express();
