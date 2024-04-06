@@ -3,10 +3,10 @@ import jwt from 'jsonwebtoken';
 
 // Define an interface that extends the express Request interface
 interface AuthenticatedRequest extends Request {
-  user?: any; // or whatever type 'decoded' is
+  user?: any; 
 }
 
-const verifyToken = (req: AuthenticatedRequest, res: Response, next: NextFunction): void => { // Explicitly annotate that function returns void
+const verifyToken = (req: AuthenticatedRequest, res: Response, next: NextFunction): void => { 
   const token = req.headers['authorization'];
 
   if (!token) {
