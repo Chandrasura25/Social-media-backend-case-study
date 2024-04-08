@@ -35,17 +35,26 @@ This API serves as the backend for a social media platform, providing various fe
 
 - **Notifications**:
   - Users receive notifications for mentions, likes, and comments.
-  - Real-time notifications are implemented using WebSockets.
+  - Real-time notifications are implemented using Socket.IO.
 
 ## Technical Specifications
 
 - **Framework**: Express.js
 - **Language**: TypeScript
 - **Database**: MongoDB
-- **Authentication**: JWT or session-based
+- **Authentication**: JWT
 - **Caching**: Implemented for improved response times
 - **Testing**: Jest
 - **Documentation**: Swagger or similar tool
+
+## Configuration
+Make sure to set up the following environment variables in your `.env` file:
+- PORT: Port number for the server
+- MONGODB_URI: MongoDB connection URI
+- JWT_SECRET: json web token secret
+- CLOUD_NAME: Cloudinary cloud name
+- API_KEY: Cludinary API Key
+- API_SECRET: Cludinary API Secret
 
 ## Endpoints
 
