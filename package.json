@@ -1,7 +1,7 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "Social Media Backend Case Study",
   "main": "index.ts",
   "scripts": {
    "test": "jest",
