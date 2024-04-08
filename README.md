@@ -1,108 +1,100 @@
-# Expatswap User Management Backend
+# Social Media API
 
-This repository contains the backend implementation for the Expatswap User Management Module. It provides RESTful APIs for user creation, fetching, and pagination, with data persistence in a MongoDB database.
+Welcome to the Social Media API! This API provides functionality for a basic social media platform, allowing users to register, create posts, follow other users, like and comment on posts, receive notifications, and more.
 
-## Technologies Used
+## Table of Contents
 
-- Node.js: JavaScript runtime environment
-- Express.js: Web application framework for Node.js
-- MongoDB: NoSQL database for storing user data
-- Mongoose: MongoDB object modeling for Node.js
-- bcrypt.js: Library for hashing passwords
+- [Introduction](#introduction)
+- [Functionality](#functionality)
+- [Technical Specifications](#technical-specifications)
+- [Endpoints](#endpoints)
+- [Getting Started](#getting-started)
+- [Testing](#testing)
+- [Contributing](#contributing)
+- [License](#license)
 
-## Setup
+## Introduction
 
-1. Clone the repository:
+This API serves as the backend for a social media platform, providing various features for user interaction and data management. It is built using Express.js and TypeScript, with MongoDB as the database solution. The API design emphasizes performance, scalability, and reliability.
 
-    ```bash
-    git clone https://github.com/Chandrasura25/Expatswap-Backend
-    ```
+## Functionality
 
-2. Install dependencies:
+- **User Management**:
+  - Users can register and create accounts.
+  - Users can log in and authenticate using JWT or session-based authentication.
 
-    ```bash
-    cd expatswap-backend
-    npm install
-    ```
+- **Posts and Feed**:
+  - Users can create posts with text and optional image/video attachments.
+  - Users can follow other users.
+  - Users can see posts from the people they follow in their personalized feed.
+  - Pagination is implemented for retrieving large amounts of data efficiently.
 
-3. Set up environment variables:
+- **Likes and Comments**:
+  - Users can like and comment on posts created by others.
+  - Users can see the number of likes and comments on a post.
 
-    Create a `.env` file in the root directory and define the following variables:
+- **Notifications**:
+  - Users receive notifications for mentions, likes, and comments.
+  - Real-time notifications are implemented using WebSockets.
 
-    ```plaintext
-    PORT=
-    MONGODB_URI=<mongodb-connection-string>
-    ```
+## Technical Specifications
 
-4. Start the server:
+- **Framework**: Express.js
+- **Language**: TypeScript
+- **Database**: MongoDB
+- **Authentication**: JWT or session-based
+- **Caching**: Implemented for improved response times
+- **Testing**: Jest
+- **Documentation**: Swagger or similar tool
 
-    ```bash
-    npm start
-    ```
+## Endpoints
 
-The server should now be running on the specified port.
+### User Management
 
-## API Endpoints
+- `POST /register`: Register a new user.
+- `POST /login`: Log in and authenticate user.
 
-### User Creation
+### Posts
 
-- **URL:** `/api/users`
-- **Method:** POST
-- **Request Body:**
+- `POST /posts`: Create a new post.
+- `GET /posts`: Get all posts.
+- `GET /posts/:userId`: Get posts by a specific user.
+- `POST /posts/like/:postId`: Like a post.
+- `POST /posts/unlike/:postId`: Unlike a post.
+- `POST /posts/comment/:postId`: Comment on a post.
 
-    ```json
-    {
-        "firstName": "John",
-        "lastName": "Doe",
-        "phoneNumber": "1234567890",
-        "email": "john.doe@example.com",
-        "password": "password123",
-        "dateOfBirth": "1990-01-01"
-    }
-    ```
+### Feed
 
-- **Response:**
+- `GET /feed`: Get personalized feed for the authenticated user.
 
-    - 201 Created: User created successfully
-    - 400 Bad Request: Invalid request body or validation errors
+### Followers and Following
 
-### Fetch Users
+- `POST /follow/:userIdToFollow`: Follow a user.
+- `POST /unfollow/:userIdToUnfollow`: Unfollow a user.
 
-- **URL:** `/api/users`
-- **Method:** GET
-- **Query Parameters:**
-    - `page`: Page number (default: 1)
-    - `limit`: Number of users per page (default: 10)
-    - `from`: Start date of birth range (optional)
-    - `to`: End date of birth range (optional)
+### Notifications
 
-- **Response:**
+- Real-time notifications are sent via WebSockets.
 
-    ```json
-    {
-        "users": [
-            {
-                "_id": "12345",
-                "firstName": "John",
-                "lastName": "Doe",
-                "phoneNumber": "1234567890",
-                "email": "john.doe@example.com",
-                "dateOfBirth": "1990-01-01"
-            },
-            ...
-        ],
-        "totalUsers": 25,
-        "currentPage": 1,
-        "totalPages": 3
-    }
-    ```
+## Getting Started
 
-## Security Considerations
+1. Clone the repository: `https://gitlab.com/Chandrasura25/Social-media-backend-case-study or https://github.com/Chandrasura25/Social-media-backend-case-study`
+2. Install dependencies: `cd Social-media-backend-case-study and npm install`
+3. Set up environment variables: Create a `.env` file based on `.env.example` and provide necessary values.
+4. Start the server: `npm start`
 
-- Ensured to sanitize and validate user inputs to prevent injection attacks.
-- Hash passwords using bcrypt.js before storing them in the database.
-- Implemented rate limiting and authentication mechanisms for secure access to APIs.
+## Testing
+
+Testing is implemented using Jest. Run tests with the command:
+
+```bash
+npm test
+```
+
+## Contributing
+
+Contributions are welcome! Please follow the [contribution guidelines](CONTRIBUTING.md) before making a pull request.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the [MIT License](LICENSE).
