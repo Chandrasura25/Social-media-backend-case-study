@@ -45,6 +45,7 @@ This API serves as the backend for a social media platform, providing various fe
 - **Authentication**: JWT
 - **Caching**: Implemented for improved response times
 - **Testing**: Jest
+- **Media Uploads**: Cloudinary
 - **Documentation**: Swagger or similar tool
 
 ## Configuration
