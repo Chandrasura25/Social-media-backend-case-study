@@ -111,6 +111,4 @@ describe('User Routes', () => {
     expect(response.body).toEqual({ message: 'Post liked successfully' });
   });
 
-  // Add similar test cases for other routes
-
 });
