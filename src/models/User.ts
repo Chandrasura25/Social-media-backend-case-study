@@ -1,19 +1,23 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Document, Schema, Types } from 'mongoose';
 
 export interface UserDocument extends Document {
   username: string;
   email: string;
   password: string;
-  followers: string[]; // Array of user IDs who are following this user
-  following: string[];  // Array of user IDs the current user follows
+  followers: Types.ObjectId[];
+  following: Types.ObjectId[];
+  createdAt: Date;
 }
 
-const userSchema: Schema = new Schema({
-  username: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  followers: [{ type: Schema.Types.ObjectId, ref: 'User' }],
-  following: [{ type: Schema.Types.ObjectId, ref: 'User' }],
-});
+const userSchema = new Schema<UserDocument>(
+  {
+    username: { type: String, required: true, unique: true, trim: true, minlength: 3, maxlength: 30 },
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    password: { type: String, required: true, select: false },
+    followers: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+    following: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+  },
+  { timestamps: true },
+);
 
 export default mongoose.model<UserDocument>('User', userSchema);

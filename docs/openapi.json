@@ -1,0 +1,189 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Social Media API",
+    "version": "2.0.0",
+    "description": "A TypeScript / Express backend for a social network.\n\n- **Auth:** JWT bearer tokens, bcrypt-hashed passwords.\n- **Posts:** text and/or an image or video (Cloudinary or local disk), paginated, newest first.\n- **Feed:** posts from people you follow plus your own.\n- **Engagement:** likes, comments and @mentions.\n- **Notifications:** saved to MongoDB and pushed live over Socket.IO to the recipient only.\n- **Caching:** optional Redis cache for `/posts` and `/feed`, keyed per user and cleared on every write.\n\n### Real-time notifications\n```js\nconst socket = io('http://localhost:3000', { auth: { token } });\nsocket.on('notifications', unread => …); // unread list on connect\nsocket.on('notification', n => …);        // each new notification\n```\n\nSource: [github.com/Chandrasura25/Social-media-backend-case-study](https://github.com/Chandrasura25/Social-media-backend-case-study)"
+  },
+  "servers": [{ "url": "http://localhost:3000", "description": "Local (npm run dev)" }],
+  "tags": [
+    { "name": "Auth" },
+    { "name": "Users", "description": "Profiles and follows" },
+    { "name": "Posts" },
+    { "name": "Feed" },
+    { "name": "Notifications" }
+  ],
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/api/register": {
+      "post": {
+        "tags": ["Auth"], "summary": "Create an account", "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["username", "email", "password"],
+          "properties": {
+            "username": { "type": "string", "minLength": 3, "example": "ada" },
+            "email": { "type": "string", "format": "email", "example": "ada@example.com" },
+            "password": { "type": "string", "minLength": 8, "example": "password123" }
+          }
+        } } } },
+        "responses": {
+          "201": { "description": "Registered", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } } },
+          "409": { "description": "Email or username already taken" },
+          "422": { "$ref": "#/components/responses/Invalid" }
+        }
+      }
+    },
+    "/api/login": {
+      "post": {
+        "tags": ["Auth"], "summary": "Log in", "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["email", "password"],
+          "properties": { "email": { "type": "string", "example": "ada@example.com" }, "password": { "type": "string", "example": "password123" } }
+        } } } },
+        "responses": {
+          "200": { "description": "Logged in", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthResponse" } } } },
+          "401": { "description": "Invalid email or password (same message for both, to prevent account enumeration)" }
+        }
+      }
+    },
+    "/api/me": {
+      "get": { "tags": ["Users"], "summary": "My profile",
+        "responses": { "200": { "description": "Profile", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/api/users/{userId}": {
+      "get": { "tags": ["Users"], "summary": "A user's profile",
+        "parameters": [{ "$ref": "#/components/parameters/userId" }],
+        "responses": { "200": { "description": "Profile", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+    "/api/follow/{userId}": {
+      "post": { "tags": ["Users"], "summary": "Follow a user", "description": "Notifies the followed user.",
+        "parameters": [{ "$ref": "#/components/parameters/userId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Message" }, "400": { "description": "Invalid id, or trying to follow yourself" }, "404": { "$ref": "#/components/responses/NotFound" }, "409": { "description": "Already following" } } }
+    },
+    "/api/unfollow/{userId}": {
+      "post": { "tags": ["Users"], "summary": "Unfollow a user",
+        "parameters": [{ "$ref": "#/components/parameters/userId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Message" }, "409": { "description": "Not following this user" } } }
+    },
+    "/api/posts": {
+      "get": { "tags": ["Posts"], "summary": "All posts, newest first",
+        "parameters": [{ "$ref": "#/components/parameters/page" }, { "$ref": "#/components/parameters/limit" }],
+        "responses": { "200": { "$ref": "#/components/responses/PostPage" } } },
+      "post": { "tags": ["Posts"], "summary": "Create a post",
+        "description": "Send JSON for a text post, or `multipart/form-data` to attach one image or MP4 (≤ 10 MB) as `file`. Mentioned users are notified.",
+        "requestBody": { "required": true, "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/NewPost" } },
+          "multipart/form-data": { "schema": { "allOf": [
+            { "$ref": "#/components/schemas/NewPost" },
+            { "type": "object", "properties": { "file": { "type": "string", "format": "binary" } } }
+          ] } }
+        } },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Post" } } } }, "422": { "description": "Empty post (no text and no file) or invalid mention ids" } } }
+    },
+    "/api/posts/{userId}": {
+      "get": { "tags": ["Posts"], "summary": "A user's posts",
+        "parameters": [{ "$ref": "#/components/parameters/userId" }, { "$ref": "#/components/parameters/page" }, { "$ref": "#/components/parameters/limit" }],
+        "responses": { "200": { "$ref": "#/components/responses/PostPage" } } }
+    },
+    "/api/posts/{postId}": {
+      "delete": { "tags": ["Posts"], "summary": "Delete my post",
+        "parameters": [{ "$ref": "#/components/parameters/postId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Message" }, "403": { "description": "Not your post" }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+    "/api/posts/like/{postId}": {
+      "post": { "tags": ["Posts"], "summary": "Like a post", "description": "Notifies the author (unless it's your own post).",
+        "parameters": [{ "$ref": "#/components/parameters/postId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Message" }, "404": { "$ref": "#/components/responses/NotFound" }, "409": { "description": "Already liked" } } }
+    },
+    "/api/posts/unlike/{postId}": {
+      "post": { "tags": ["Posts"], "summary": "Remove my like",
+        "parameters": [{ "$ref": "#/components/parameters/postId" }],
+        "responses": { "200": { "$ref": "#/components/responses/Message" }, "404": { "$ref": "#/components/responses/NotFound" }, "409": { "description": "Not liked" } } }
+    },
+    "/api/posts/comment/{postId}": {
+      "post": { "tags": ["Posts"], "summary": "Comment on a post", "description": "Notifies the author and any mentioned users.",
+        "parameters": [{ "$ref": "#/components/parameters/postId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": {
+          "type": "object", "required": ["text"],
+          "properties": { "text": { "type": "string", "example": "Great post!" }, "mentionedUsers": { "type": "array", "items": { "type": "string" } } }
+        } } } },
+        "responses": { "201": { "description": "Comment", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Comment" } } } }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "description": "Empty comment" } } }
+    },
+    "/api/feed": {
+      "get": { "tags": ["Feed"], "summary": "My feed", "description": "Posts from people I follow plus my own, newest first. Cached per user when Redis is configured.",
+        "parameters": [{ "$ref": "#/components/parameters/page" }, { "$ref": "#/components/parameters/limit" }],
+        "responses": { "200": { "$ref": "#/components/responses/PostPage" } } }
+    },
+    "/api/notifications": {
+      "get": { "tags": ["Notifications"], "summary": "My notifications, newest first",
+        "parameters": [
+          { "name": "unread", "in": "query", "schema": { "type": "boolean" }, "description": "Only unread" },
+          { "$ref": "#/components/parameters/page" }, { "$ref": "#/components/parameters/limit" }
+        ],
+        "responses": { "200": { "description": "Notifications", "content": { "application/json": { "schema": {
+          "allOf": [{ "$ref": "#/components/schemas/Page" }, { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Notification" } } } }]
+        } } } } } }
+    },
+    "/api/notifications/read": {
+      "post": { "tags": ["Notifications"], "summary": "Mark all as read",
+        "responses": { "200": { "description": "Done", "content": { "application/json": { "schema": { "type": "object", "properties": { "message": { "type": "string" }, "updated": { "type": "integer", "example": 3 } } } } } } } }
+    }
+  },
+  "components": {
+    "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" } },
+    "parameters": {
+      "userId": { "name": "userId", "in": "path", "required": true, "schema": { "type": "string", "example": "6651f0c2a1b2c3d4e5f60718" } },
+      "postId": { "name": "postId", "in": "path", "required": true, "schema": { "type": "string", "example": "6651f0c2a1b2c3d4e5f60799" } },
+      "page": { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+      "limit": { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 } }
+    },
+    "responses": {
+      "Message": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "message": { "type": "string" } } } } } },
+      "Unauthorized": { "description": "Missing, invalid or expired token" },
+      "NotFound": { "description": "Not found" },
+      "Invalid": { "description": "Validation failed", "content": { "application/json": { "schema": { "type": "object", "properties": { "message": { "type": "string" } } } } } },
+      "PostPage": { "description": "A page of posts", "content": { "application/json": { "schema": {
+        "allOf": [{ "$ref": "#/components/schemas/Page" }, { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Post" } } } }]
+      } } } }
+    },
+    "schemas": {
+      "User": { "type": "object", "properties": {
+        "id": { "type": "string" }, "username": { "type": "string", "example": "ada" }, "email": { "type": "string", "example": "ada@example.com" },
+        "followersCount": { "type": "integer", "example": 12 }, "followingCount": { "type": "integer", "example": 8 }, "createdAt": { "type": "string", "format": "date-time" }
+      } },
+      "AuthResponse": { "type": "object", "properties": { "token": { "type": "string", "example": "eyJhbGciOi…" }, "user": { "$ref": "#/components/schemas/User" } } },
+      "NewPost": { "type": "object", "properties": {
+        "text": { "type": "string", "maxLength": 2000, "example": "Shipping v2 today 🚀" },
+        "mentionedUsers": { "description": "User ids — array, JSON string or comma-separated", "oneOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "string" }] }
+      } },
+      "Comment": { "type": "object", "properties": {
+        "_id": { "type": "string" }, "user": { "oneOf": [{ "type": "string" }, { "type": "object", "properties": { "_id": { "type": "string" }, "username": { "type": "string" } } }] },
+        "text": { "type": "string" }, "createdAt": { "type": "string", "format": "date-time" }
+      } },
+      "Post": { "type": "object", "properties": {
+        "_id": { "type": "string" },
+        "user": { "type": "object", "properties": { "_id": { "type": "string" }, "username": { "type": "string", "example": "ada" } } },
+        "text": { "type": "string" },
+        "media": { "type": "string", "nullable": true, "example": "https://res.cloudinary.com/…/photo.jpg" },
+        "likesCount": { "type": "integer", "example": 4 },
+        "commentsCount": { "type": "integer", "example": 2 },
+        "likedByMe": { "type": "boolean" },
+        "comments": { "type": "array", "items": { "$ref": "#/components/schemas/Comment" } },
+        "mentionedUsers": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      } },
+      "Notification": { "type": "object", "properties": {
+        "_id": { "type": "string" },
+        "type": { "type": "string", "enum": ["mention", "like", "comment", "follow"] },
+        "actor": { "type": "object", "properties": { "_id": { "type": "string" }, "username": { "type": "string" } } },
+        "postId": { "type": "string", "nullable": true },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      } },
+      "Page": { "type": "object", "properties": {
+        "page": { "type": "integer", "example": 1 }, "limit": { "type": "integer", "example": 10 },
+        "total": { "type": "integer", "example": 42 }, "totalPages": { "type": "integer", "example": 5 }
+      } }
+    }
+  }
+}

@@ -1,26 +1,38 @@
-import { Request, Response, NextFunction } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
+import { config } from '../config';
 
-// Define an interface that extends the express Request interface
-interface AuthenticatedRequest extends Request {
-  user?: any; 
+export interface AuthenticatedRequest extends Request {
+  user?: { userId: string };
 }
 
-const verifyToken = (req: AuthenticatedRequest, res: Response, next: NextFunction): void => { 
-  const token = req.headers['authorization'];
+/** Reads the user id from a signed JWT. */
+export function verifyJwt(token: string): string {
+  const decoded = jwt.verify(token, config.jwtSecret) as { userId?: string };
+  if (!decoded.userId) {
+    throw new Error('Token has no userId');
+  }
+  return decoded.userId;
+}
+
+export function signJwt(userId: string): string {
+  return jwt.sign({ userId }, config.jwtSecret, { expiresIn: config.jwtExpiresIn } as jwt.SignOptions);
+}
+
+/** Accepts `Authorization: Bearer <token>` (or a bare token for older clients). */
+export default function verifyToken(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+  const header = req.headers.authorization;
+  const token = header?.startsWith('Bearer ') ? header.slice(7) : header;
 
   if (!token) {
     res.status(401).json({ message: 'Access denied, token is required' });
-  } else {
-    try {
-      // Verify token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || '');
-      req.user = decoded;
-      next();
-    } catch (error) {
-      res.status(403).json({ message: 'Invalid token' });
-    }
+    return;
   }
-};
 
-export default verifyToken;
+  try {
+    req.user = { userId: verifyJwt(token) };
+    next();
+  } catch {
+    res.status(401).json({ message: 'Invalid or expired token' });
+  }
+}

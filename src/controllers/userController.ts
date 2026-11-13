@@ -1,137 +1,133 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import User, { UserDocument } from '../models/User';
+import { isValidObjectId } from 'mongoose';
+import User from '../models/User';
+import Notification from '../models/Notification';
+import { notify } from '../realtime';
+import { AuthenticatedRequest, signJwt } from '../utils/authMiddleware';
+import { HttpError } from '../utils/httpError';
+import { paged, paginate } from '../utils/pagination';
 
-interface AuthenticatedRequest extends Request {
-  user?: { userId: string }; // Define the user property with userId
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function publicUser(user: any) {
+  return {
+    id: String(user._id),
+    username: user.username,
+    email: user.email,
+    followersCount: user.followers?.length ?? 0,
+    followingCount: user.following?.length ?? 0,
+    createdAt: user.createdAt,
+  };
 }
 
-exports.createUser = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { username, email, password } = req.body;
+export async function register(req: AuthenticatedRequest, res: Response) {
+  const { username, email, password } = req.body ?? {};
 
-    // Check if the user already exists
-    let user = await User.findOne({ email });
-    if (user) {
-      res.status(400).json({ message: 'User already exists' });
-      return;
-    }
-
-    // Hash the password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Create new user
-    user = new User({ username, email, password: hashedPassword });
-    await user.save();
-
-    res.status(201).json({ message: 'User registered successfully' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+  if (typeof username !== 'string' || username.trim().length < 3) {
+    throw new HttpError(422, 'username must be at least 3 characters');
   }
-};
-exports.loginUser = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { email, password } = req.body;
-
-    // Find user by email
-    const user: UserDocument | null = await User.findOne({ email });
-
-    if (!user) {
-      res.status(404).json({ message: 'User not found' });
-      return;
-    }
-
-    // Check password
-    const isPasswordValid: boolean = await bcrypt.compare(password, user.password);
-
-    if (!isPasswordValid) {
-      res.status(401).json({ message: 'Invalid password' });
-      return;
-    }
-
-    // Generate JWT token
-    const token: string = jwt.sign({ userId: user._id }, process.env.JWT_SECRET || '', {
-      expiresIn: '1h', // Token expires in 1 hour
-    });
-
-    res.status(200).json({ token });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+  if (typeof email !== 'string' || !EMAIL_RE.test(email)) {
+    throw new HttpError(422, 'A valid email is required');
   }
-};
-
-// Follow a user
-export const followUser = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  try {
-    const userId = req.user?.userId; // Access userId from req.user
-    const { userIdToFollow } = req.params;
-
-    const currentUser: UserDocument | null = await User.findById(userId);
-    const userToFollow: UserDocument | null = await User.findById(userIdToFollow);
-
-    if (!currentUser || !userToFollow) {
-      res.status(404).json({ message: 'User not found' });
-      return;
-    }
-
-    // Check if the current user is already following the user to follow
-    if (currentUser.following.includes(userIdToFollow)) {
-      res.status(400).json({ message: 'You are already following this user' });
-      return;
-    }
-
-    // Add the user to follow to the current user's following list
-    if (userId) {
-      currentUser.following.push(userIdToFollow);
-      await currentUser.save();
-    }
-
-    // Add the current user to the user to follow's followers list
-    if (userId) {
-      userToFollow.followers.push(userId);
-      await userToFollow.save();
-    }
-
-    res.status(200).json({ message: 'You are now following this user' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+  if (typeof password !== 'string' || password.length < 8) {
+    throw new HttpError(422, 'password must be at least 8 characters');
   }
-};
 
-// Unfollow a user
-export const unfollowUser = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  try {
-    const userId = req.user?.userId; // Access userId from req.user
-    const { userIdToUnfollow } = req.params;
-
-    const currentUser: UserDocument | null = await User.findById(userId);
-
-    if (!currentUser) {
-      res.status(404).json({ message: 'User not found' });
-      return;
-    }
-
-    // Remove the user to unfollow from the current user's following list
-    if (userId) {
-      currentUser.following = currentUser.following.filter(id => id !== userIdToUnfollow);
-      await currentUser.save();
-    }
-
-    // Remove the current user from the user to unfollow's followers list
-    const userToUnfollow: UserDocument | null = await User.findById(userIdToUnfollow);
-    if (userToUnfollow) {
-      userToUnfollow.followers = userToUnfollow.followers.filter(id => id !== userId);
-      await userToUnfollow.save();
-    }
-
-    res.status(200).json({ message: 'You have unfollowed this user' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+  const exists = await User.exists({ $or: [{ email: email.toLowerCase() }, { username: username.trim() }] });
+  if (exists) {
+    throw new HttpError(409, 'Email or username is already taken');
   }
-};
 
+  const user = await User.create({
+    username: username.trim(),
+    email,
+    password: await bcrypt.hash(password, 10),
+  });
+
+  res.status(201).json({ token: signJwt(String(user._id)), user: publicUser(user) });
+}
+
+export async function login(req: AuthenticatedRequest, res: Response) {
+  const { email, password } = req.body ?? {};
+  if (typeof email !== 'string' || typeof password !== 'string') {
+    throw new HttpError(422, 'email and password are required');
+  }
+
+  const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+  // Same response for unknown email and wrong password, so accounts can't be enumerated
+  if (!user || !(await bcrypt.compare(password, user.password))) {
+    throw new HttpError(401, 'Invalid email or password');
+  }
+
+  res.json({ token: signJwt(String(user._id)), user: publicUser(user) });
+}
+
+export async function me(req: AuthenticatedRequest, res: Response) {
+  const user = await User.findById(req.user!.userId);
+  if (!user) throw new HttpError(404, 'User not found');
+  res.json(publicUser(user));
+}
+
+export async function getUser(req: AuthenticatedRequest, res: Response) {
+  const user = await User.findById(req.params.userId);
+  if (!user) throw new HttpError(404, 'User not found');
+  res.json(publicUser(user));
+}
+
+export async function follow(req: AuthenticatedRequest, res: Response) {
+  const me = req.user!.userId;
+  const target = req.params.userIdToFollow;
+
+  if (!isValidObjectId(target)) throw new HttpError(400, 'Invalid id');
+  if (target === me) throw new HttpError(400, 'You cannot follow yourself');
+  if (!(await User.exists({ _id: target }))) throw new HttpError(404, 'User not found');
+
+  // The filter makes this a no-op if already following (modifiedCount is unreliable with timestamps)
+  const result = await User.updateOne({ _id: me, following: { $ne: target } }, { $addToSet: { following: target } });
+  if (result.matchedCount === 0) {
+    throw new HttpError(409, 'You are already following this user');
+  }
+  await User.updateOne({ _id: target }, { $addToSet: { followers: me } });
+  await notify({ recipient: target, actor: me, type: 'follow' });
+
+  res.json({ message: 'You are now following this user' });
+}
+
+export async function unfollow(req: AuthenticatedRequest, res: Response) {
+  const me = req.user!.userId;
+  const target = req.params.userIdToUnfollow;
+
+  if (!isValidObjectId(target)) throw new HttpError(400, 'Invalid id');
+
+  const result = await User.updateOne({ _id: me, following: target }, { $pull: { following: target } });
+  if (result.matchedCount === 0) {
+    throw new HttpError(409, 'You are not following this user');
+  }
+  await User.updateOne({ _id: target }, { $pull: { followers: me } });
+
+  res.json({ message: 'You have unfollowed this user' });
+}
+
+export async function listNotifications(req: AuthenticatedRequest, res: Response) {
+  const { page, limit, skip } = paginate(req);
+  const filter: Record<string, unknown> = { recipient: req.user!.userId };
+  if (req.query.unread === 'true') filter.read = false;
+
+  const [data, total] = await Promise.all([
+    Notification.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('actor', 'username')
+      .lean(),
+    Notification.countDocuments(filter),
+  ]);
+
+  res.json(paged(data, total, page, limit));
+}
+
+export async function markNotificationsRead(req: AuthenticatedRequest, res: Response) {
+  const result = await Notification.updateMany({ recipient: req.user!.userId, read: false }, { read: true });
+  res.json({ message: 'Notifications marked as read', updated: result.modifiedCount });
+}

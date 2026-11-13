@@ -1,59 +1,25 @@
-import express from 'express';
 import http from 'http';
-import socketio from 'socket.io';
 import mongoose from 'mongoose';
-import dotenv from 'dotenv';
-import cors from 'cors';
-import bodyParser from 'body-parser';
-const userRoutes = require('./src/routes/userRoutes');
-import Notification from './src/models/Notification';
-dotenv.config();
+import { createApp } from './src/app';
+import { config } from './src/config';
+import { attachRealtime } from './src/realtime';
+import { connectCache } from './src/utils/cache';
 
-const app = express();
-const server = http.createServer(app);
-const io = new socketio.Server(server); // Instantiate socket.io server
+async function main() {
+  await mongoose.connect(config.mongoUri);
+  console.log('Connected to MongoDB');
 
-const port = process.env.PORT || 3000;
-const MONGODB_URI = process.env.MONGODB_URI;
+  await connectCache();
 
-// Middlewares
-app.use(cors());
-app.use(express.json()); // Handles JSON requests effectively
-app.use(bodyParser.urlencoded({extended:true}));
-// Routes
-app.use("/api", userRoutes);
+  const server = http.createServer(createApp());
+  attachRealtime(server);
 
-(async () => {
-  try {
-    await mongoose.connect(MONGODB_URI!);
-    console.log(`Connected to MongoDB database`);
+  server.listen(config.port, () => {
+    console.log(`Server listening on http://localhost:${config.port}`);
+  });
+}
 
-    // Start server only after successful connection
-    server.listen(port, () => {
-      console.log(`Server is listening on port ${port}`);
-    });
-
-    io.on('connection', (socket) => {
-      console.log('A client connected');
-
-      // Example: Handle notification events
-      socket.on('notification', async (userId) => {
-        // Retrieve notifications for the user
-        const notifications = await Notification.find({ recipient: userId, read: false }).lean();
-
-        // Emit notifications to the client
-        socket.emit('notifications', notifications);
-      });
-
-      // Handle disconnection
-      socket.on('disconnect', () => {
-        console.log('A client disconnected');
-      });
-    });
-  } catch (error) {
-    console.error('Error connecting to MongoDB or starting server:', error);
-    process.exit(1); 
-  }
-})();
-
-export { io };
+main().catch((error) => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
+});

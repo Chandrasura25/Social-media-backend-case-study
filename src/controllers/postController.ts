@@ -1,259 +1,147 @@
-import { Request, Response } from 'express';
-import Post, { PostDocument } from '../models/Post';
-import { uploadMedia } from '../utils/uploadFile';
-import upload from '../utils/multerConfig'; 
-import { paginate } from '../utils/pagination';
-import Notification from '../models/Notification';
-import { io } from '../../index';
+import { Response } from 'express';
+import { isValidObjectId } from 'mongoose';
+import Post from '../models/Post';
+import User from '../models/User';
+import { notify } from '../realtime';
+import { AuthenticatedRequest } from '../utils/authMiddleware';
+import { HttpError } from '../utils/httpError';
+import { paged, paginate } from '../utils/pagination';
+import { storeMedia } from '../utils/upload';
 
-interface AuthenticatedRequest extends Request {
-   user?: { userId: string; following: string[] };// Define the user property with userId
+/** mentionedUsers may arrive as a JSON array, a repeated form field, or a comma-separated string. */
+function parseIds(value: unknown): string[] {
+  if (!value) return [];
+  let list: unknown[] = [];
+  if (Array.isArray(value)) list = value;
+  else if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      list = Array.isArray(parsed) ? parsed : [parsed];
+    } catch {
+      list = value.split(',');
+    }
+  }
+  return [...new Set(list.map((v) => String(v).trim()).filter(Boolean))];
 }
 
-// Notification handler
-const sendNotification = async (recipient: string) => {
-  io.emit('notification', recipient); // Emit a notification event to all connected clients
-};
+/** Adds counts and whether the current user liked the post; hides the raw likes array. */
+function present(post: any, viewerId?: string) {
+  const { likes = [], comments = [], ...rest } = post;
+  return {
+    ...rest,
+    likesCount: likes.length,
+    commentsCount: comments.length,
+    likedByMe: viewerId ? likes.some((id: unknown) => String(id) === viewerId) : false,
+    comments,
+  };
+}
 
-// Create a new post
-export const createPost = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  try {
-    const { text, mentionedUsers } = req.body;
-    const userId = req.user?.userId; // Access userId from req.user
-
-    if (!userId) {
-      res.status(401).json({ message: 'Unauthorized' });
-    } else {
-      // Use multer middleware directly
-      upload.single('file')(req, res, async (err: any) => {
-        if (err) {
-          console.error(err);
-          res.status(500).json({ message: 'File upload error' });
-          return;
-        }
-
-        // Use type assertion to inform TypeScript about the existence of the 'file' property
-        const media = (req as any).file ? (req as any).file.path : null; // Media URL from file upload
-
-        const post = new Post({
-          user: userId,
-          text,
-          media: media, // Media URL from file upload
-          mentionedUsers: mentionedUsers // Mentioned users
-        });
-
-        await post.save();
-
-        // Trigger mention notifications for mentioned users
-        if (mentionedUsers && mentionedUsers.length > 0) {
-          mentionedUsers.forEach(async (user: string) => {
-            await sendNotification(user);
-          });
-        }
-
-        res.status(201).json({ message: 'Post created successfully' });
-      });
-    }
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// Get all posts
-export const getAllPosts = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { page, limit, skip } = paginate(req);
-
-    const posts: PostDocument[] = await Post.find()
+async function listPosts(req: AuthenticatedRequest, res: Response, filter: Record<string, unknown>) {
+  const { page, limit, skip } = paginate(req);
+  const [posts, total] = await Promise.all([
+    Post.find(filter)
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('user', 'username') // Populate the 'user' field with username
-      .lean(); // Use lean() to return plain JavaScript objects
-
-    // Map posts to include the number of likes and comments
-    const postsWithLikesAndComments = posts.map(post => ({
-      ...post,
-      likesCount: post.likes.length, // Number of likes
-      commentsCount: post.comments.length, // Number of comments
-    }));
-
-    res.status(200).json(postsWithLikesAndComments);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-
-// Get all posts by a specific user
-export const getAllPostsByUser = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { userId } = req.params;
-    const { page, limit, skip } = paginate(req);
-
-    const posts: PostDocument[] = await Post.find({ user: userId })
-      .skip(skip)
-      .limit(limit)
-      .populate('user', 'username') // Populate the 'user' field with username
-      .lean(); // Use lean() to return plain JavaScript objects
-
-    // Map posts to include the number of likes and comments
-    const postsWithLikesAndComments = posts.map(post => ({
-      ...post,
-      likesCount: post.likes.length, // Number of likes
-      commentsCount: post.comments.length, // Number of comments
-    }));
-
-    res.status(200).json(postsWithLikesAndComments);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-
-
-// Feeds
-// Get user's feed with pagination
-export const getFeed = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  try {
-    if (!req.user || !req.user.userId) {
-      res.status(400).json({ message: 'User ID is required' });
-      return;
-    }
-
-    const { page, limit, skip } = paginate(req);
-
-    // Ensure req.user.following is available before querying
-    if (!req.user.following || !Array.isArray(req.user.following)) {
-      res.status(400).json({ message: 'User following list is missing or invalid' });
-      return;
-    }
-
-    // Fetch posts from users the current user follows with pagination
-    const posts: PostDocument[] = await Post.find({ user: { $in: req.user.following } })
       .populate('user', 'username')
-      .skip(skip)
-      .limit(limit);
+      .populate('comments.user', 'username')
+      .lean(),
+    Post.countDocuments(filter),
+  ]);
+  res.json(paged(posts.map((p) => present(p, req.user?.userId)), total, page, limit));
+}
 
-    res.status(200).json(posts);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+export async function createPost(req: AuthenticatedRequest, res: Response) {
+  const userId = req.user!.userId;
+  const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+  const file = (req as any).file as Express.Multer.File | undefined;
+
+  if (!text && !file) {
+    throw new HttpError(422, 'A post needs text, a media file, or both');
   }
-};
 
-// Like a post
-export const likePost = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  try {
-    const userId = req.user?.userId; // Current user ID
-    const { postId } = req.params;
-
-    if (!userId) {
-      res.status(401).json({ message: 'Unauthorized' });
-      return;
-    }
-
-    const post: PostDocument | null = await Post.findById(postId);
-
-    if (!post) {
-      res.status(404).json({ message: 'Post not found' });
-      return;
-    }
-
-    // Check if the user has already liked the post
-    if (!post.likes || !post.likes.includes(userId)) {
-      // Add the user to the post's likes list
-      await Post.findByIdAndUpdate(postId, { $addToSet: { likes: userId } });
-
-      // Notify the post owner about the like
-      if (String(post.user) !== userId) {
-        await sendNotification(post.user);
-      }
-
-      res.status(200).json({ message: 'Post liked successfully' });
-      return;
-    }
-
-    res.status(400).json({ message: 'You have already liked this post' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+  const mentionIds = parseIds(req.body?.mentionedUsers);
+  if (mentionIds.some((id) => !isValidObjectId(id))) {
+    throw new HttpError(422, 'mentionedUsers must be user ids');
   }
-};
+  const mentioned = mentionIds.length ? await User.find({ _id: { $in: mentionIds } }).distinct('_id') : [];
 
-// Unlike a Post
-export const unlikePost = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  try {
-    const userId = req.user?.userId;// Current user ID
-    const { postId } = req.params;
+  const post = await Post.create({
+    user: userId,
+    text,
+    media: file ? await storeMedia(file) : undefined,
+    mentionedUsers: mentioned,
+  });
 
-    const post: PostDocument | null = await Post.findById(postId).lean();
+  await Promise.all(
+    mentioned.map((id) => notify({ recipient: String(id), actor: userId, type: 'mention', postId: String(post._id) })),
+  );
 
-    if (!post) {
-      res.status(404).json({ message: 'Post not found' });
-      return;
-    }
+  res.status(201).json(present(post.toObject(), userId));
+}
 
-    // Remove the user from the post's likes list
-    await Post.findByIdAndUpdate(postId, { $pull: { likes: userId } });
+export const getAllPosts = (req: AuthenticatedRequest, res: Response) => listPosts(req, res, {});
 
-    res.status(200).json({ message: 'Post unliked successfully' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
+export async function getPostsByUser(req: AuthenticatedRequest, res: Response) {
+  if (!isValidObjectId(req.params.userId)) throw new HttpError(400, 'Invalid id');
+  return listPosts(req, res, { user: req.params.userId });
+}
 
-// Comment on a Post
-export const commentOnPost = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  try {
-    const userId = req.user?.userId;
-    const { postId } = req.params;
-    const { text, mentionedUsers } = req.body;
+/** Posts from the people you follow, plus your own, newest first. */
+export async function getFeed(req: AuthenticatedRequest, res: Response) {
+  const me = await User.findById(req.user!.userId).select('following').lean();
+  if (!me) throw new HttpError(404, 'User not found');
+  return listPosts(req, res, { user: { $in: [...me.following, me._id] } });
+}
 
-    if (!userId) {
-      res.status(401).json({ message: 'Unauthorized' });
-      return;
-    }
+export async function deletePost(req: AuthenticatedRequest, res: Response) {
+  const post = await Post.findById(req.params.postId);
+  if (!post) throw new HttpError(404, 'Post not found');
+  if (String(post.user) !== req.user!.userId) throw new HttpError(403, 'You can only delete your own posts');
+  await post.deleteOne();
+  res.json({ message: 'Post deleted' });
+}
 
-    const post: PostDocument | null = await Post.findById(postId);
+export async function likePost(req: AuthenticatedRequest, res: Response) {
+  const userId = req.user!.userId;
+  const post = await Post.findById(req.params.postId).select('user');
+  if (!post) throw new HttpError(404, 'Post not found');
 
-    if (!post) {
-      res.status(404).json({ message: 'Post not found' });
-      return;
-    }
+  // The filter makes this a no-op if already liked (modifiedCount is unreliable with timestamps)
+  const result = await Post.updateOne({ _id: post._id, likes: { $ne: userId } }, { $addToSet: { likes: userId } });
+  if (result.matchedCount === 0) throw new HttpError(409, 'You have already liked this post');
 
-    if (!post.comments) {
-      post.comments = [];
-    }
+  await notify({ recipient: String(post.user), actor: userId, type: 'like', postId: String(post._id) });
+  res.json({ message: 'Post liked successfully' });
+}
 
-    const newComment = {
-      user: userId,
-      text,
-      createdAt: new Date(), // Provide a default createdAt value
-    };
+export async function unlikePost(req: AuthenticatedRequest, res: Response) {
+  const userId = req.user!.userId;
+  if (!(await Post.exists({ _id: req.params.postId }))) throw new HttpError(404, 'Post not found');
+  const result = await Post.updateOne({ _id: req.params.postId, likes: userId }, { $pull: { likes: userId } });
+  if (result.matchedCount === 0) throw new HttpError(409, 'You have not liked this post');
+  res.json({ message: 'Post unliked successfully' });
+}
 
-    // Add comment to the post's comments array
-    post.comments.push(newComment);
-    await post.save();
+export async function commentOnPost(req: AuthenticatedRequest, res: Response) {
+  const userId = req.user!.userId;
+  const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+  if (!text) throw new HttpError(422, 'Comment text is required');
 
-    // Notify the post owner about the comment
-    if (String(post.user) !== userId) {
-      await sendNotification(post.user);
-    }
+  const post = await Post.findById(req.params.postId);
+  if (!post) throw new HttpError(404, 'Post not found');
 
-    // Trigger mention notifications for mentioned users
-    if (mentionedUsers && mentionedUsers.length > 0) {
-      mentionedUsers.forEach(async (user: string) => {
-        await sendNotification(user);
-      });
-    }
+  post.comments.push({ user: userId, text } as any);
+  await post.save();
+  const comment = post.comments[post.comments.length - 1];
 
-    res.status(201).json({ message: 'Comment added successfully' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
+  const mentionIds = parseIds(req.body?.mentionedUsers).filter((id) => isValidObjectId(id));
+  const mentioned = mentionIds.length ? await User.find({ _id: { $in: mentionIds } }).distinct('_id') : [];
+
+  await notify({ recipient: String(post.user), actor: userId, type: 'comment', postId: String(post._id) });
+  await Promise.all(
+    mentioned.map((id) => notify({ recipient: String(id), actor: userId, type: 'mention', postId: String(post._id) })),
+  );
+
+  res.status(201).json(comment);
+}

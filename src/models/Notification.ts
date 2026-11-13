@@ -1,21 +1,25 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Document, Schema, Types } from 'mongoose';
+
+export type NotificationType = 'mention' | 'like' | 'comment' | 'follow';
 
 export interface NotificationDocument extends Document {
-  recipient: string; // Recipient user ID
-  type: 'mention' | 'like' | 'comment'; // Type of notification
-  postId?: string; // ID of the relevant post (for likes/comments)
-  commentId?: string; // ID of the relevant comment (for comments)
-  read: boolean; // Indicates whether the notification has been read
+  recipient: Types.ObjectId;
+  actor: Types.ObjectId;
+  type: NotificationType;
+  postId?: Types.ObjectId;
+  read: boolean;
   createdAt: Date;
 }
 
-const notificationSchema: Schema = new Schema({
-  recipient: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  type: { type: String, enum: ['mention', 'like', 'comment'], required: true },
-  postId: { type: Schema.Types.ObjectId, ref: 'Post' },
-  commentId: { type: Schema.Types.ObjectId, ref: 'Comment' },
-  read: { type: Boolean, default: false },
-  createdAt: { type: Date, default: Date.now },
-});
+const notificationSchema = new Schema<NotificationDocument>(
+  {
+    recipient: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    actor: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    type: { type: String, enum: ['mention', 'like', 'comment', 'follow'], required: true },
+    postId: { type: Schema.Types.ObjectId, ref: 'Post' },
+    read: { type: Boolean, default: false },
+  },
+  { timestamps: true },
+);
 
 export default mongoose.model<NotificationDocument>('Notification', notificationSchema);
